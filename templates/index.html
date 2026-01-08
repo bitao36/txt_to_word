@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Generador de fichas bibliográficas</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+        :root {
+            --color-principal: #2c3e50;
+            --color-secundario: #34495e;
+            --color-acento: #8e44ad;
+            --color-fondo: #f2f2f2;
+            --color-blanco: #ffffff;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: var(--color-fondo);
+            color: var(--color-principal);
+        }
+
+        header {
+            background: var(--color-principal);
+            color: var(--color-blanco);
+            padding: 30px 20px;
+            text-align: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 26px;
+            font-weight: 600;
+        }
+
+        header p {
+            margin-top: 8px;
+            font-size: 14px;
+            opacity: 0.9;
+        }
+
+        main {
+            padding: 40px 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .card {
+            background: var(--color-blanco);
+            width: 100%;
+            max-width: 480px;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+        }
+
+        .card h2 {
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 20px;
+            text-align: center;
+        }
+
+        .file-input {
+            border: 2px dashed #ccc;
+            padding: 25px;
+            text-align: center;
+            border-radius: 6px;
+            transition: border-color 0.3s;
+        }
+
+        .file-input:hover {
+            border-color: var(--color-acento);
+        }
+
+        .file-input input[type="file"] {
+            display: block;
+            margin: 15px auto 0;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 25px;
+            padding: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            border: none;
+            border-radius: 6px;
+            background: var(--color-acento);
+            color: var(--color-blanco);
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: #732d91;
+        }
+
+        .info {
+            margin-top: 25px;
+            font-size: 13px;
+            color: #555;
+            line-height: 1.5;
+            text-align: center;
+        }
+
+        footer {
+            margin-top: 40px;
+            padding: 15px;
+            text-align: center;
+            font-size: 12px;
+            color: #777;
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>Generador de fichas bibliográficas</h1>
+    <p>Conversión automática de registros TXT a fichas en Word</p>
+</header>
+
+<main>
+    <div class="card">
+        <h2>Subir archivo</h2>
+
+        <form method="POST" enctype="multipart/form-data">
+            <div class="file-input">
+                <strong>Archivo TXT</strong>
+                <p>Exportado desde la base de datos</p>
+                <input type="file" name="archivo" accept=".txt" required>
+            </div>
+
+            <button type="submit">
+                Generar documento Word
+            </button>
+        </form>
+
+        <div class="info">
+            • Cada registro se convertirá en una ficha<br>
+            • Una ficha por página<br>
+            • Formato idéntico al modelo oficial
+        </div>
+    </div>
+</main>
+
+<footer>
+    Sistema de fichas bibliográficas · Generación automática
+</footer>
+
+</body>
+</html>
+
