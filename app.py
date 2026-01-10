@@ -96,10 +96,11 @@ def parsear_registros(texto):
 # GENERACIÓN WORD
 # =========================
 
-def eliminar_primera_tabla(doc):
-    if doc.tables:
-        tbl = doc.tables[0]._tbl
-        tbl.getparent().remove(tbl)
+
+def limpiar_documento(doc):
+    body = doc._element.body
+    for child in list(body):
+        body.remove(child)
 
 
 def agregar_ficha(doc, registro):
@@ -140,17 +141,17 @@ def agregar_ficha(doc, registro):
 
     doc.add_page_break()
 
-
 def crear_word(registros, ruta_salida):
     doc = Document(PLANTILLA_WORD)
-    eliminar_primera_tabla(doc)
 
-    #for r in registros:
-    #    agregar_ficha(doc, r)
-        	
-    for i, r in enumerate(registros):        
+    #  eliminar TODO el contenido inicial del template
+    limpiar_documento(doc)
+
+    for i, r in enumerate(registros):
         if i > 0:
-            doc.add_page_break()
+            p = doc.add_paragraph()
+            p.paragraph_format.page_break_before = True
+
         agregar_ficha(doc, r)
 
     doc.save(ruta_salida)
