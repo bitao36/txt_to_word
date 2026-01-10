@@ -1,179 +1,137 @@
 import os
-import re
-from datetime import datetime
 from flask import Flask, render_template, request, send_file
 from docx import Document
 from docx.shared import Cm
-from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml import OxmlElement, ns
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-PLANTILLA_WORD = os.path.join(BASE_DIR, "templates_word", "AUTOR.docx")
-SALIDA_DIR = os.path.join(BASE_DIR, "salida")
-os.makedirs(SALIDA_DIR, exist_ok=True)
+from datetime import datetime
+import pytz
+import zipfile
+import io
 
 app = Flask(__name__)
 
-# --------------------------------------------------
-# WORD – utilidades
-# --------------------------------------------------
-def copiar_margenes(origen, destino):
-    s1 = origen.sections[0]
-    s2 = destino.sections[0]
-    s2.top_margin = s1.top_margin
-    s2.bottom_margin = s1.bottom_margin
-    s2.left_margin = s1.left_margin
-    s2.right_margin = s1.right_margin
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PLANTILLA_WORD = os.path.join(BASE_DIR, "templates_word", "AUTOR.docx")
+OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
 
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-def aplicar_bordes_tabla(tabla):
-    tbl = tabla._tbl
+# --------------------------------------------------
+# UTILIDADES WORD
+# --------------------------------------------------
+
+def limpiar_documento(doc):
+    body = doc._element.body
+    for element in list(body):
+        body.remove(element)
+
+def aplicar_bordes_dobles(tabla):
+    tbl = tabla._element
     tblPr = tbl.tblPr
 
     borders = OxmlElement("w:tblBorders")
-    for lado in ("top", "left", "bottom", "right", "insideH", "insideV"):
-        borde = OxmlElement(f"w:{lado}")
-        borde.set(ns.qn("w:val"), "single")
-        borde.set(ns.qn("w:sz"), "8")
-        borde.set(ns.qn("w:space"), "0")
-        borde.set(ns.qn("w:color"), "000000")
-        borders.append(borde)
+    for borde in ["top", "left", "bottom", "right", "insideH", "insideV"]:
+        elem = OxmlElement(f"w:{borde}")
+        elem.set(ns.qn("w:val"), "double")
+        elem.set(ns.qn("w:sz"), "8")       # grosor
+        elem.set(ns.qn("w:space"), "0")
+        elem.set(ns.qn("w:color"), "000000")
+        borders.append(elem)
 
     tblPr.append(borders)
 
-
-def extraer_estilo_base(modelo):
-    """
-    Extrae fuente y tamaño reales desde la primera celda del modelo
-    """
-    tabla = modelo.tables[0]
-    p = tabla.cell(0, 0).paragraphs[0]
-    run = p.runs[0]
-
-    return {
-        "font_name": run.font.name,
-        "font_size": run.font.size,
-    }
-
-
-def escribir_texto(parrafo, texto, estilo, negrita=False):
-    run = parrafo.add_run(texto)
-    run.font.name = estilo["font_name"]
-    run.font.size = estilo["font_size"]
-    run.bold = negrita
-
-
-# --------------------------------------------------
-# TXT → registros
-# --------------------------------------------------
-def procesar_texto_a_registros(texto):
-    bloques = re.split(r"\nMFN:\d+", texto)
-    mfns = re.findall(r"MFN:(\d+)", texto)
-
-    registros = []
-    for i, bloque in enumerate(bloques):
-        if not bloque.strip():
-            continue
-
-        r = {"MFN": mfns[i] if i < len(mfns) else ""}
-
-        for linea in bloque.splitlines():
-            if "\t" in linea:
-                k, v = linea.split("\t", 1)
-                r[k.strip()] = v.strip()
-
-        registros.append(r)
-
-    return registros
-
+def negrita(run):
+    run.bold = True
 
 # --------------------------------------------------
 # FICHA
 # --------------------------------------------------
-def agregar_ficha(doc, modelo, r, estilo):
-    copiar_margenes(modelo, doc)
 
-    tiene_edicion = bool(r.get("EDICION"))
+def agregar_ficha(doc, registro):
+    tiene_edicion = bool(registro.get("EDICION", "").strip())
     filas = 7 if tiene_edicion else 6
 
     tabla = doc.add_table(rows=filas, cols=2)
-    tabla.alignment = WD_TABLE_ALIGNMENT.CENTER
-    aplicar_bordes_tabla(tabla)
+    tabla.alignment = 1  # centrada
+    aplicar_bordes_dobles(tabla)
 
-    # Anchos exactos (13 cm útiles)
-    tabla.columns[0].width = Cm(4.55)
-    tabla.columns[1].width = Cm(8.45)
+    ancho_total = Cm(12)  # 20 - 4 - 4
+    tabla.columns[0].width = Cm(4)
+    tabla.columns[1].width = Cm(8)
 
-    campos = [
-        ("SIGNATURA TOPOGRAFICA", r.get("SIGNATURA TOPOGRAFICA", "")),
-        ("AUTOR PRINCIPAL", r.get("AUTOR PRINCIPAL", "")),
-        ("TITULO/SUBTITULO", r.get("TITULO/SUBTITULO", "")),
-        ("MENCION RESPONSABILIDAD", r.get("MENCION RESPONSABILIDAD", "")),
-    ]
+    fila_actual = 0
+
+    def fila(titulo, valor, titulo_negrita=True, valor_negrita=False):
+        nonlocal fila_actual
+        c1, c2 = tabla.rows[fila_actual].cells
+
+        r1 = c1.paragraphs[0].add_run(titulo)
+        if titulo_negrita:
+            negrita(r1)
+
+        r2 = c2.paragraphs[0].add_run(valor or "")
+        if valor_negrita:
+            negrita(r2)
+
+        fila_actual += 1
+
+    # ORDEN CORRECTO
+    fila("SIGNATURA TOPOGRAFICA", registro.get("SIGNATURA", ""), True, True)
+    fila("AUTOR PRINCIPAL", registro.get("AUTOR", ""), True, True)
+    fila("TITULO / SUBTITULO", registro.get("TITULO", ""), True, False)
+    fila("MENCION RESPONSABILIDAD", registro.get("MENCION", ""), True, False)
 
     if tiene_edicion:
-        campos.append(("EDICION", r.get("EDICION", "")))
+        fila("EDICION", registro.get("EDICION", ""), True, False)
 
-    campos.extend([
-        ("IMPRENTA", r.get("IMPRENTA", "")),
-        ("DESCRIPCION FISICA", r.get("DESCRIPCION FISICA", "")),
-    ])
-
-    for i, (k, v) in enumerate(campos):
-        p1 = tabla.cell(i, 0).paragraphs[0]
-        p2 = tabla.cell(i, 1).paragraphs[0]
-
-        escribir_texto(p1, k, estilo, negrita=True)
-        escribir_texto(p2, v, estilo, negrita=i < 2)
+    fila("IMPRENTA", registro.get("IMPRENTA", ""), True, False)
+    fila("DESCRIPCION FISICA", registro.get("DESCRIPCION", ""), True, False)
 
     doc.add_page_break()
 
-
 # --------------------------------------------------
-# WORD final
+# CREAR WORD
 # --------------------------------------------------
-def crear_word_con_fichas(registros):
-    modelo = Document(PLANTILLA_WORD)
-    estilo = extraer_estilo_base(modelo)
 
-    doc = Document()
-    copiar_margenes(modelo, doc)
-
-    for r in registros:
-        agregar_ficha(doc, modelo, r, estilo)
+def crear_word(registros):
+    tz = pytz.timezone("America/Bogota")
+    ahora = datetime.now(tz).strftime("%Y-%m-%d_%H-%M-%S")
 
     mfns = [r["MFN"] for r in registros if r.get("MFN")]
-    mfn_i = mfns[0] if mfns else "X"
-    mfn_f = mfns[-1] if mfns else "Y"
+    mfn_inicio = mfns[0] if mfns else "00000"
+    mfn_fin = mfns[-1] if mfns else "00000"
 
-    fecha = datetime.now().strftime("%Y-%m-%d_%H:%M:%S")
-    nombre = f"fichas_{fecha}_MFN_{mfn_i}_{mfn_f}.docx"
+    nombre = f"fichas_{ahora}_MFN_{mfn_inicio}_{mfn_fin}.docx"
+    ruta = os.path.join(OUTPUT_DIR, nombre)
 
-    ruta = os.path.join(SALIDA_DIR, nombre)
+    doc = Document(PLANTILLA_WORD)
+    limpiar_documento(doc)
+
+    for r in registros:
+        agregar_ficha(doc, r)
+
     doc.save(ruta)
-    return ruta
-
+    return ruta, nombre
 
 # --------------------------------------------------
-# FLASK
+# WEB
 # --------------------------------------------------
+
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
-        archivo = request.files.get("archivo")
-        if not archivo:
-            return "No se subió ningún archivo", 400
+        registros = request.get_json()
 
-        texto = archivo.read().decode("utf-8", errors="ignore")
-        registros = procesar_texto_a_registros(texto)
-
-        ruta = crear_word_con_fichas(registros)
-        return send_file(ruta, as_attachment=True)
+        ruta, nombre = crear_word(registros)
+        return send_file(ruta, as_attachment=True, download_name=nombre)
 
     return render_template("index.html")
 
+# --------------------------------------------------
+# RENDER
+# --------------------------------------------------
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()
+    #app.run(host="0.0.0.0", port=10000)
 
