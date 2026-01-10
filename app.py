@@ -1,137 +1,187 @@
 import os
+import zipfile
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from flask import Flask, render_template, request, send_file
 from docx import Document
 from docx.shared import Cm
-from docx.oxml import OxmlElement, ns
-from datetime import datetime
-import pytz
-import zipfile
-import io
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+
+# =========================
+# CONFIGURACIÓN GENERAL
+# =========================
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
+PLANTILLA_WORD = os.path.join(BASE_DIR, "templates_word", "AUTOR.docx")
+
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 app = Flask(__name__)
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PLANTILLA_WORD = os.path.join(BASE_DIR, "templates_word", "AUTOR.docx")
-OUTPUT_DIR = os.path.join(BASE_DIR, "outputs")
 
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-# --------------------------------------------------
+# =========================
 # UTILIDADES WORD
-# --------------------------------------------------
+# =========================
 
-def limpiar_documento(doc):
-    body = doc._element.body
-    for element in list(body):
-        body.remove(element)
-
-def aplicar_bordes_dobles(tabla):
-    tbl = tabla._element
+def aplicar_borde_doble(tabla):
+    tbl = tabla._tbl
     tblPr = tbl.tblPr
 
     borders = OxmlElement("w:tblBorders")
-    for borde in ["top", "left", "bottom", "right", "insideH", "insideV"]:
-        elem = OxmlElement(f"w:{borde}")
-        elem.set(ns.qn("w:val"), "double")
-        elem.set(ns.qn("w:sz"), "8")       # grosor
-        elem.set(ns.qn("w:space"), "0")
-        elem.set(ns.qn("w:color"), "000000")
-        borders.append(elem)
+    for lado in ("top", "left", "bottom", "right", "insideH", "insideV"):
+        borde = OxmlElement(f"w:{lado}")
+        borde.set(qn("w:val"), "double")
+        borde.set(qn("w:sz"), "6")
+        borde.set(qn("w:space"), "0")
+        borde.set(qn("w:color"), "000000")
+        borders.append(borde)
 
     tblPr.append(borders)
 
-def negrita(run):
-    run.bold = True
 
-# --------------------------------------------------
-# FICHA
-# --------------------------------------------------
+def centrar_tabla(tabla):
+    tblPr = tabla._tbl.tblPr
+    jc = OxmlElement("w:jc")
+    jc.set(qn("w:val"), "center")
+    tblPr.append(jc)
+
+
+# =========================
+# PARSEO TXT
+# =========================
+
+def leer_txt(path):
+    with open(path, "r", encoding="latin-1", errors="ignore") as f:
+        return f.read()
+
+
+def parsear_registros(texto):
+    registros = []
+    actual = {}
+
+    for linea in texto.splitlines():
+        linea = linea.strip()
+        if not linea:
+            continue
+
+        if linea.startswith("MFN:"):
+            if actual:
+                registros.append(actual)
+            actual = {"MFN": linea.replace("MFN:", "").strip()}
+        else:
+            if "\t" in linea:
+                k, v = linea.split("\t", 1)
+                actual[k.strip()] = v.strip()
+
+    if actual:
+        registros.append(actual)
+
+    return registros
+
+
+# =========================
+# GENERACIÓN WORD
+# =========================
 
 def agregar_ficha(doc, registro):
-    tiene_edicion = bool(registro.get("EDICION", "").strip())
-    filas = 7 if tiene_edicion else 6
+    filas = [
+        ("SIGNATURA TOPOGRAFICA", registro.get("SIGNATURA TOPOGRAFICA", "")),
+        ("AUTOR PRINCIPAL", registro.get("AUTOR PRINCIPAL", "")),
+        ("TITULO / SUBTITULO", registro.get("TITULO/SUBTITULO", "")),
+        ("MENCION RESPONSABILIDAD", registro.get("MENCION RESPONSABILIDAD", "")),
+    ]
 
-    tabla = doc.add_table(rows=filas, cols=2)
-    tabla.alignment = 1  # centrada
-    aplicar_bordes_dobles(tabla)
+    if registro.get("EDICION"):
+        filas.append(("EDICION", registro.get("EDICION")))
 
-    ancho_total = Cm(12)  # 20 - 4 - 4
+    filas.extend([
+        ("IMPRENTA", registro.get("IMPRENTA", "")),
+        ("DESCRIPCION FISICA", registro.get("DESCRIPCION FISICA", "")),
+    ])
+
+    tabla = doc.add_table(rows=len(filas), cols=2)
+    tabla.autofit = False
+
+    # Ancho exacto: 20cm - 4cm - 4cm = 12cm
     tabla.columns[0].width = Cm(4)
     tabla.columns[1].width = Cm(8)
 
-    fila_actual = 0
+    for i, (titulo, valor) in enumerate(filas):
+        c1 = tabla.cell(i, 0).paragraphs[0]
+        c2 = tabla.cell(i, 1).paragraphs[0]
 
-    def fila(titulo, valor, titulo_negrita=True, valor_negrita=False):
-        nonlocal fila_actual
-        c1, c2 = tabla.rows[fila_actual].cells
+        r1 = c1.add_run(titulo)
+        r1.bold = True
 
-        r1 = c1.paragraphs[0].add_run(titulo)
-        if titulo_negrita:
-            negrita(r1)
+        r2 = c2.add_run(valor)
+        if i < 2:
+            r2.bold = True
 
-        r2 = c2.paragraphs[0].add_run(valor or "")
-        if valor_negrita:
-            negrita(r2)
-
-        fila_actual += 1
-
-    # ORDEN CORRECTO
-    fila("SIGNATURA TOPOGRAFICA", registro.get("SIGNATURA", ""), True, True)
-    fila("AUTOR PRINCIPAL", registro.get("AUTOR", ""), True, True)
-    fila("TITULO / SUBTITULO", registro.get("TITULO", ""), True, False)
-    fila("MENCION RESPONSABILIDAD", registro.get("MENCION", ""), True, False)
-
-    if tiene_edicion:
-        fila("EDICION", registro.get("EDICION", ""), True, False)
-
-    fila("IMPRENTA", registro.get("IMPRENTA", ""), True, False)
-    fila("DESCRIPCION FISICA", registro.get("DESCRIPCION", ""), True, False)
+    aplicar_borde_doble(tabla)
+    centrar_tabla(tabla)
 
     doc.add_page_break()
 
-# --------------------------------------------------
-# CREAR WORD
-# --------------------------------------------------
 
-def crear_word(registros):
-    tz = pytz.timezone("America/Bogota")
-    ahora = datetime.now(tz).strftime("%Y-%m-%d_%H-%M-%S")
-
-    mfns = [r["MFN"] for r in registros if r.get("MFN")]
-    mfn_inicio = mfns[0] if mfns else "00000"
-    mfn_fin = mfns[-1] if mfns else "00000"
-
-    nombre = f"fichas_{ahora}_MFN_{mfn_inicio}_{mfn_fin}.docx"
-    ruta = os.path.join(OUTPUT_DIR, nombre)
-
+def crear_word(registros, ruta_salida):
     doc = Document(PLANTILLA_WORD)
-    limpiar_documento(doc)
 
     for r in registros:
         agregar_ficha(doc, r)
 
-    doc.save(ruta)
-    return ruta, nombre
+    doc.save(ruta_salida)
 
-# --------------------------------------------------
-# WEB
-# --------------------------------------------------
+
+# =========================
+# FLASK
+# =========================
 
 @app.route("/", methods=["GET", "POST"])
 def index():
     if request.method == "POST":
-        registros = request.get_json()
+        archivo = request.files.get("archivo")
+        if not archivo:
+            return "Archivo no enviado", 400
 
-        ruta, nombre = crear_word(registros)
-        return send_file(ruta, as_attachment=True, download_name=nombre)
+        ruta_txt = os.path.join(UPLOAD_DIR, archivo.filename)
+        archivo.save(ruta_txt)
+
+        texto = leer_txt(ruta_txt)
+        registros = parsear_registros(texto)
+
+        if not registros:
+            return "No se encontraron registros", 400
+
+        mfn_inicio = registros[0]["MFN"]
+        mfn_fin = registros[-1]["MFN"]
+
+        ahora = datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d_%H-%M-%S")
+
+        nombre_word = f"fichas_{ahora}_MFN_{mfn_inicio}_{mfn_fin}.docx"
+        ruta_word = os.path.join(OUTPUT_DIR, nombre_word)
+
+        crear_word(registros, ruta_word)
+
+        nombre_zip = nombre_word.replace(".docx", ".zip")
+        ruta_zip = os.path.join(OUTPUT_DIR, nombre_zip)
+
+        with zipfile.ZipFile(ruta_zip, "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(ruta_word, arcname=nombre_word)
+
+        return send_file(ruta_zip, as_attachment=True)
 
     return render_template("index.html")
 
-# --------------------------------------------------
-# RENDER
-# --------------------------------------------------
+
+# =========================
+# ENTRYPOINT RENDER
+# =========================
 
 if __name__ == "__main__":
-    app.run()
-    #app.run(host="0.0.0.0", port=10000)
+    app.run(host="0.0.0.0", port=10000)
 
