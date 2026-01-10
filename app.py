@@ -191,13 +191,7 @@ def index():
 
         crear_word(registros, ruta_word)
 
-        nombre_zip = nombre_word.replace(".docx", ".zip")
-        ruta_zip = os.path.join(OUTPUT_DIR, nombre_zip)
-
-        with zipfile.ZipFile(ruta_zip, "w", zipfile.ZIP_DEFLATED) as z:
-            z.write(ruta_word, arcname=nombre_word)
-
-        return send_file(ruta_zip, as_attachment=True)
+        return send_file(ruta_word, as_attachment=True)
 
     return render_template("index.html")
 
