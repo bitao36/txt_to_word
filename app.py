@@ -100,7 +100,9 @@ def parsear_registros(texto):
 def limpiar_documento(doc):
     body = doc._element.body
     for child in list(body):
-        body.remove(child)
+        # NO eliminar la definición de sección (márgenes, tamaño, etc.)
+        if child.tag != qn("w:sectPr"):
+            body.remove(child)
 
 
 def agregar_ficha(doc, registro):
