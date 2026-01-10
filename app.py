@@ -139,7 +139,7 @@ def agregar_ficha(doc, registro):
     aplicar_borde_doble(tabla)
     centrar_tabla(tabla)
 
-    doc.add_page_break()
+    #doc.add_page_break()
 
 def crear_word(registros, ruta_salida):
     doc = Document(PLANTILLA_WORD)
