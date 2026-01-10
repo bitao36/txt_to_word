@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 
 from flask import Flask, render_template, request, send_file
 from docx import Document
-from docx.shared import Cm
+from docx.shared import Cm, Pt
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 
@@ -23,6 +23,8 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 app = Flask(__name__)
 
+FUENTE = "Arial"
+TAM_FUENTE = Pt(10)
 
 # =========================
 # UTILIDADES WORD
@@ -49,6 +51,12 @@ def centrar_tabla(tabla):
     jc = OxmlElement("w:jc")
     jc.set(qn("w:val"), "center")
     tblPr.append(jc)
+
+
+def aplicar_estilo(run, bold=False):
+    run.bold = bold
+    run.font.name = FUENTE
+    run.font.size = TAM_FUENTE
 
 
 # =========================
@@ -107,7 +115,7 @@ def agregar_ficha(doc, registro):
     tabla = doc.add_table(rows=len(filas), cols=2)
     tabla.autofit = False
 
-    # Ancho exacto: 20cm - 4cm - 4cm = 12cm
+    # 20cm - 4cm - 4cm = 12cm
     tabla.columns[0].width = Cm(4)
     tabla.columns[1].width = Cm(8)
 
@@ -116,11 +124,10 @@ def agregar_ficha(doc, registro):
         c2 = tabla.cell(i, 1).paragraphs[0]
 
         r1 = c1.add_run(titulo)
-        r1.bold = True
+        aplicar_estilo(r1, bold=True)
 
         r2 = c2.add_run(valor)
-        if i < 2:
-            r2.bold = True
+        aplicar_estilo(r2, bold=(i < 2))
 
     aplicar_borde_doble(tabla)
     centrar_tabla(tabla)
@@ -160,7 +167,9 @@ def index():
         mfn_inicio = registros[0]["MFN"]
         mfn_fin = registros[-1]["MFN"]
 
-        ahora = datetime.now(ZoneInfo("America/Bogota")).strftime("%Y-%m-%d_%H-%M-%S")
+        ahora = datetime.now(
+            ZoneInfo("America/Bogota")
+        ).strftime("%Y-%m-%d_%H-%M-%S")
 
         nombre_word = f"fichas_{ahora}_MFN_{mfn_inicio}_{mfn_fin}.docx"
         ruta_word = os.path.join(OUTPUT_DIR, nombre_word)
