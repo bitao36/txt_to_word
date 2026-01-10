@@ -96,6 +96,12 @@ def parsear_registros(texto):
 # GENERACIÓN WORD
 # =========================
 
+def eliminar_primera_tabla(doc):
+    if doc.tables:
+        tbl = doc.tables[0]._tbl
+        tbl.getparent().remove(tbl)
+
+
 def agregar_ficha(doc, registro):
     filas = [
         ("SIGNATURA TOPOGRAFICA", registro.get("SIGNATURA TOPOGRAFICA", "")),
@@ -137,8 +143,14 @@ def agregar_ficha(doc, registro):
 
 def crear_word(registros, ruta_salida):
     doc = Document(PLANTILLA_WORD)
+    eliminar_primera_tabla(doc)
 
-    for r in registros:
+    #for r in registros:
+    #    agregar_ficha(doc, r)
+        	
+    for i, r in enumerate(registros):        
+        if i > 0:
+            doc.add_page_break()
         agregar_ficha(doc, r)
 
     doc.save(ruta_salida)
